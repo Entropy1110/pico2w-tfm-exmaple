@@ -1,14 +1,76 @@
-# my_tfm_custom_project/CMakeLists.txt
-cmake_minimum_required(VERSION 3.20)
+#-------------------------------------------------------------------------------
+# Copyright (c) 2023-2024, Arm Limited. All rights reserved.
+#
+# SPDX-License-Identifier: BSD-3-Clause
+#
+#-------------------------------------------------------------------------------
+cmake_minimum_required(VERSION 3.21)
 
-project(my_tfm_custom_project)
+if (NOT DEFINED CONFIG_SPE_PATH OR NOT EXISTS ${CONFIG_SPE_PATH})
+    message(FATAL_ERROR "CONFIG_SPE_PATH = ${CONFIG_SPE_PATH} is not defined or incorrect. Please provide full path to TF-M build artifacts using -DCONFIG_SPE_PATH=")
+endif()
 
-message(STATUS "Processing My Custom TF-M Project (Extras Style) from: ${CMAKE_CURRENT_SOURCE_DIR}")
+list(APPEND CMAKE_MODULE_PATH ${CONFIG_SPE_PATH}/cmake)
 
-# 전역적으로 이 프로젝트의 interface 디렉토리를 include 경로에 추가할 수 있습니다.
-# 이렇게 하면 하위 프로젝트들에서 상대 경로를 더 간단하게 사용할 수 있습니다.
-include_directories(SYSTEM "${CMAKE_CURRENT_SOURCE_DIR}/interface")
+# A platform specific MCPU and architecture flags for NS side
+include(${CONFIG_SPE_PATH}/platform/cpuarch.cmake)
+# Include common configs exported from TF-M
+include(${CONFIG_SPE_PATH}/cmake/spe_config.cmake)
 
-# 하위 디렉토리(partitions, app)의 CMakeLists.txt를 순차적으로 처리
-add_subdirectory(partitions)
-add_subdirectory(app)
+# Select toolchain file if it is not specified via command line or the absolute path
+# is unavailable.
+if (NOT DEFINED TFM_TOOLCHAIN_FILE)
+    if (NOT DEFINED TFM_TOOLCHAIN)
+        set(TFM_TOOLCHAIN "GNUARM")
+        message(WARNING "TFM_TOOLCHAIN or TFM_TOOLCHAIN_FILE is not defined")
+        message(WARNING "TFM_TOOLCHAIN is set to ${TFM_TOOLCHAIN}")
+    endif()
+    set(TFM_TOOLCHAIN_FILE    ${CONFIG_SPE_PATH}/cmake/toolchain_ns_${TFM_TOOLCHAIN}.cmake)
+endif()
+
+include(${TFM_TOOLCHAIN_FILE})
+project("TF-M Example"  LANGUAGES C CXX ASM)
+add_executable(tfm_ns)
+add_compile_definitions(PICO_RAM_VECTOR_TABLE_SIZE=16)
+
+# The exported TF-M interfaces
+add_subdirectory(${CONFIG_SPE_PATH} ${CMAKE_BINARY_DIR}/spe)
+
+target_sources(tfm_ns
+    PRIVATE
+        main.c
+        ${CONFIG_SPE_PATH}/interface/src/os_wrapper/tfm_ns_interface_bare_metal.c
+        # GNU Arm compiler version greater equal than *11.3.Rel1*
+        # has a linker issue that required system calls are missing,
+        # such as _read and _write. Add stub functions of required
+        # system calls to solve this issue.
+        $<$<BOOL:${CONFIG_GNU_SYSCALL_STUB_ENABLED}>:syscalls_stub.c>
+)
+
+target_link_libraries(tfm_ns
+    PRIVATE
+        tfm_api_ns
+)
+
+if (CONFIG_TFM_USE_TRUSTZONE)
+    target_link_libraries(tfm_ns
+        PRIVATE
+            tfm_api_ns_tz
+    )
+endif()
+
+set_target_properties(tfm_ns PROPERTIES
+    SUFFIX ".axf"
+    RUNTIME_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/bin"
+)
+
+target_add_scatter_file(tfm_ns ${CONFIG_SPE_PATH}/platform/linker_scripts)
+
+target_link_options(tfm_ns
+    PRIVATE
+        $<$<C_COMPILER_ID:GNU>:-Wl,-Map=${CMAKE_BINARY_DIR}/bin/tfm_ns.map>
+        $<$<C_COMPILER_ID:ARMClang>:--map>
+        $<$<C_COMPILER_ID:IAR>:--map\;${CMAKE_BINARY_DIR}/bin/tfm_ns.map>
+)
+
+add_convert_to_bin_target(tfm_ns)
