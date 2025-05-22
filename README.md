@@ -1,10 +1,12 @@
 # Directions
 ## Setting up directories
 ❯ `git clone --recursive https://github.com/Entropy1110/pico2w-tfm.git`
+
 ❯ `cd pico2w-tfm/pico2w-tfm-exmaple && mkdir build && cd build`
 
 ## Building SPE
 ❯ `cmake -S </absolute/path/to/pico2w-trusted-firmware-m> -B ./spe -DTFM_PLATFORM=rpi/rp2350 -DPICO_BOARD=pico2_w -DTFM_PROFILE=profile_medium -DPICO_SDK_PATH=</absolute/path/to/pico-sdk> -DPLATFORM_DEFAULT_PROVISIONING=OFF`
+
 ❯ `cmake --build ./spe -- -j8 install`
 
 ## Building NSPE
@@ -14,4 +16,5 @@
 
 ## Convert SPE/NSPE into a UF2 for Flashing
 ❯ `cd </path/to/pico2w-tfm>`
+
 ❯ `./pico_uf2.sh pico2w-tfm-exmaple build`
